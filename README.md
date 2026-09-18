@@ -25,11 +25,15 @@ Implemented transport processes include:
 - Uniform-volatility diffusion bridges
 - Periodic-volatility diffusion bridges
 - Cosine-decaying volatility
-- Rectified flow matching *(baseline that fails by deterministic construction)*
+- Rectified flow matching, with optional stochastic endpoints and clean source conditioning
 - Optional EDM-style preconditioning *(not extensively tested)*
 - Forward-only, reverse-only, and bidirectional training
 - Noise-to-data ablations
 - Text and image REPA objectives
+
+See [stochastic flow matching](text_to_image/FLOW_MATCHING.md) for matched training/evaluation
+launchers and [COCO evaluation](text_to_image/COCO_EVALUATION.md) for dataset downloads,
+T2I/I2T protocols, standard CIDEr, and SPICE.
 
 ## Repository layout
 
