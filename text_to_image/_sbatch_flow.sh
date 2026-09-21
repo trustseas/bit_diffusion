@@ -20,7 +20,8 @@
 #SBATCH --requeue
 #SBATCH --output=/pscratch/sd/g/gabeguo/BiB_results/slurm_logs/%x_%j.out
 
-set -euo pipefail
+# No `set -u`: dit_env's libblas_mkl_activate.sh hook reads MKL_INTERFACE_LAYER
+# while it is unset, so `conda activate` would abort under it.
 
 module load python
 module load nccl/2.29.2-cu13
@@ -38,10 +39,22 @@ export NPROC=${NPROC:-4} # Perlmutter nodes have 4 A100s
 
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n1)
 export MASTER_PORT=${MASTER_PORT:-29500}
+
+mode=${MODE:-train}
+# Perlmutter's layout, not the /data one _flow_common.sh defaults to.
+if [[ "$mode" == eval ]]; then
+  export DATA_ROOT=${DATA_ROOT:-${PREFIX_DIR}/datasets/text_to_image/gpic_latents_TEST/TEST}
+else
+  export DATA_ROOT=${DATA_ROOT:-${PREFIX_DIR}/datasets/text_to_image/gpic_latents/train}
+fi
+# Only the train split has DINO features, and eval needs them too: the flow
+# recipe always passes --repa-image, which reads dino_config.json at startup.
+export DINO_DIR=${DINO_DIR:-${PREFIX_DIR}/datasets/text_to_image/gpic_latents_dino/train}
+
 cd "$SLURM_SUBMIT_DIR"
 
 variant=${VARIANT:?Set VARIANT to original, text_noise, or image_noise}
-script="_${MODE:-train}_flow_${variant}.sh"
+script="_${mode}_flow_${variant}.sh"
 [[ -f "$script" ]] || { echo "No such wrapper: $script" >&2; exit 2; }
 
 MAX_RETRIES=10

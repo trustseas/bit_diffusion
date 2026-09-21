@@ -87,9 +87,16 @@ sbatch --nodes=4 --job-name=flow_i2t_eval \
 
 `NPROC` defaults to 4 there because Perlmutter nodes have 4 A100s, so the
 default 2 nodes reproduces the 8-way per-GPU batch of a single-node run.
-`--global-batch-size` must stay divisible by the total GPU count. Set
-`DATA_ROOT` and `DINO_DIR` explicitly rather than relying on `PREFIX_DIR`, since
-the Perlmutter dataset layout differs from the `/data` default.
+`--global-batch-size` must stay divisible by the total GPU count.
+
+`_sbatch_flow.sh` defaults `DATA_ROOT` and `DINO_DIR` to the Perlmutter layout
+under `${PREFIX_DIR}/datasets/text_to_image`, which differs from the `/data`
+layout `_flow_common.sh` assumes; both stay overridable through `--export`.
+Training reads `gpic_latents/train` and evaluation `gpic_latents_TEST/TEST`,
+but both use the `gpic_latents_dino/train` features, because only the train
+split has them and `--repa-image` reads `dino_config.json` even under
+`--eval-only`. The script also omits `set -u`, since `dit_env`'s MKL activation
+hook reads an unset variable and would abort `conda activate`.
 
 Standalone comparison evaluation defaults to 500 Euler steps for every flow
 variant (`EVAL_STEPS` overrides), 50k FID images, and 10k I2T captions, matching

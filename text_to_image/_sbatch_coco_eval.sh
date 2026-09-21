@@ -22,7 +22,9 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --output=/pscratch/sd/g/gabeguo/BiB_results/slurm_logs/%x_%j.out
 
-set -euo pipefail
+set -eo pipefail
+# No `set -u`: dit_env's libblas_mkl_activate.sh hook reads MKL_INTERFACE_LAYER
+# while it is unset, so `conda activate` would abort under it.
 
 module load python
 module load nccl/2.29.2-cu13
