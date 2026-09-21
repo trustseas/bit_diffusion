@@ -40,6 +40,7 @@ export NPROC=${NPROC:-4} # Perlmutter nodes have 4 A100s
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n1)
 export MASTER_PORT=${MASTER_PORT:-29500}
 
+variant=${VARIANT:?Set VARIANT to original, text_noise, or image_noise}
 mode=${MODE:-train}
 # Perlmutter's layout, not the /data one _flow_common.sh defaults to.
 if [[ "$mode" == eval ]]; then
@@ -51,9 +52,20 @@ fi
 # recipe always passes --repa-image, which reads dino_config.json at startup.
 export DINO_DIR=${DINO_DIR:-${PREFIX_DIR}/datasets/text_to_image/gpic_latents_dino/train}
 
+# Mirrors _flow_common.sh's default so a chained eval can locate the training
+# run. Every process start writes its own timestamp directory, so checkpoints
+# are spread across them; rank by step rather than by mtime.
+run_root=${OUT_DIR:-${PREFIX_DIR}/BiB_results/flow_comparison/abl_flow_matching_${variant}}
+if [[ "$mode" == eval && -z "${CHECKPOINT:-}" ]]; then
+  CHECKPOINT=$(ls -1 "$run_root"/*/checkpoints/step_*.pt 2>/dev/null \
+    | awk -F'step_' '{print $NF+0, $0}' | sort -n | tail -1 | cut -d' ' -f2-)
+  [[ -n "$CHECKPOINT" ]] || { echo "No checkpoint under $run_root to evaluate" >&2; exit 2; }
+  export CHECKPOINT
+  echo "=== resolved CHECKPOINT=$CHECKPOINT ==="
+fi
+
 cd "$SLURM_SUBMIT_DIR"
 
-variant=${VARIANT:?Set VARIANT to original, text_noise, or image_noise}
 script="_${mode}_flow_${variant}.sh"
 [[ -f "$script" ]] || { echo "No such wrapper: $script" >&2; exit 2; }
 

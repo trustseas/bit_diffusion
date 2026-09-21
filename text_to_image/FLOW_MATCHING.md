@@ -98,6 +98,28 @@ split has them and `--repa-image` reads `dino_config.json` even under
 `--eval-only`. The script also omits `set -u`, since `dit_env`'s MKL activation
 hook reads an unset variable and would abort `conda activate`.
 
+`_launch_flow_pair.sh` submits training and a dependent evaluation for both
+noisy-endpoint variants:
+
+```bash
+./_launch_flow_pair.sh                   # text_noise + image_noise
+DRYRUN=1 ./_launch_flow_pair.sh          # print the sbatch lines, submit nothing
+VARIANTS=text_noise ./_launch_flow_pair.sh
+RESERVATION= ACCOUNT=m5319 ./_launch_flow_pair.sh   # regular queue instead
+```
+
+Its defaults target the `bit` reservation, which admits only account `m1266_g`
+and holds 4 nodes, so two variants at 2 nodes each fill it exactly; `TRAIN_TIME`
+plus `EVAL_TIME` must fit inside the reservation window or Slurm rejects the
+job. The eval jobs pass no `CHECKPOINT`. Each run writes a fresh timestamp
+directory under the output root, so checkpoints scatter across restarts, and
+`_sbatch_flow.sh` instead selects the highest-step `*/checkpoints/step_*.pt`
+when the job starts, failing with a clear message when none exists. Ranking is
+by step rather than modification time, because a later restart can write a
+lower step than an earlier one. The dependency is `afterany`, not `afterok`,
+since the retry loop exits 0 even when every attempt failed; confirm the
+resolved path each eval job logs before trusting its numbers.
+
 Standalone comparison evaluation defaults to 500 Euler steps for every flow
 variant (`EVAL_STEPS` overrides), 50k FID images, and 10k I2T captions, matching
 the original held-out evaluation's sample counts. Set the existing SDE/ODE
