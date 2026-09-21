@@ -46,6 +46,11 @@ cd "$SLURM_SUBMIT_DIR"
 
 task=${TASK:?Set TASK to t2i or i2t}
 
+export CHECKPOINT=${CHECKPOINT:-"hf://therealgabeguo/BiB_generative/large_scale/06_29_26/gpic_16_nodes_repa_15/step_0136000.pt"}
+export DATA_ROOT=${DATA_ROOT:-"/pscratch/sd/g/gabeguo/datasets/text_to_image/gpic_latents/train"}
+export COCO_ROOT=${COCO_ROOT:-"/pscratch/sd/g/gabeguo/datasets/coco"}
+export OUT_DIR=${OUT_DIR:-"${PREFIX_DIR}/BiB_results/coco_eval/${SLURM_JOB_ID}_${task}"}
+
 echo "=== generating ($task, $SLURM_NNODES nodes x $NPROC GPUs) ==="
 PHASE=generate srun --ntasks-per-node=1 --cpus-per-task=64 bash _eval_coco.sh "$task" "$@"
 
