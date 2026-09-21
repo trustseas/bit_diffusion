@@ -41,7 +41,17 @@ else
 fi
 export HF_HOME=${HF_HOME:-${prefix}/cache_sub}
 export PYTHONPATH=".:..${PYTHONPATH:+:$PYTHONPATH}"
-cmd=(torchrun --standalone --nproc-per-node="${NPROC:-8}" train.py "${args[@]}" "$@")
+if [[ "${SLURM_NNODES:-1}" -gt 1 ]]; then
+  # SLURM_NODEID exists only inside an srun step, so multi-node runs must go
+  # through `srun --ntasks-per-node=1`; MASTER_ADDR comes from the batch script.
+  launch=(torchrun --nnodes="$SLURM_NNODES" --nproc-per-node="${NPROC:-8}"
+    --node-rank="${SLURM_NODEID:?Launch multi-node runs under srun}"
+    --rdzv-id="$SLURM_JOB_ID" --rdzv-backend=c10d
+    --rdzv-endpoint="${MASTER_ADDR:?Set MASTER_ADDR to the first node}:${MASTER_PORT:-29500}")
+else
+  launch=(torchrun --standalone --nproc-per-node="${NPROC:-8}")
+fi
+cmd=("${launch[@]}" train.py "${args[@]}" "$@")
 if [[ "${DRYRUN:-0}" == 1 ]]; then
   printf '%q ' "${cmd[@]}"
   printf '\n'

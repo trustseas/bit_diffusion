@@ -72,6 +72,25 @@ CHECKPOINT=/data/runs/text_noise/TIMESTAMP/checkpoints/step_0200000.pt \
 
 Replace `TIMESTAMP` with the training run's timestamp directory.
 
+## Multi-node and SLURM
+
+The wrappers launch a single-node `torchrun --standalone` job unless
+`SLURM_NNODES` exceeds 1, in which case they switch to the c10d rendezvous used
+by `_multi_node_train.sh`. Multi-node runs must therefore go through
+`srun --ntasks-per-node=1`, which is what `_sbatch_flow.sh` does:
+
+```bash
+sbatch --job-name=flow_text_noise --export=ALL,VARIANT=text_noise _sbatch_flow.sh
+sbatch --nodes=4 --job-name=flow_i2t_eval \
+  --export=ALL,VARIANT=image_noise,MODE=eval,CHECKPOINT=/path/step_0200000.pt _sbatch_flow.sh
+```
+
+`NPROC` defaults to 4 there because Perlmutter nodes have 4 A100s, so the
+default 2 nodes reproduces the 8-way per-GPU batch of a single-node run.
+`--global-batch-size` must stay divisible by the total GPU count. Set
+`DATA_ROOT` and `DINO_DIR` explicitly rather than relying on `PREFIX_DIR`, since
+the Perlmutter dataset layout differs from the `/data` default.
+
 Standalone comparison evaluation defaults to 500 Euler steps for every flow
 variant (`EVAL_STEPS` overrides), 50k FID images, and 10k I2T captions, matching
 the original held-out evaluation's sample counts. Set the existing SDE/ODE
