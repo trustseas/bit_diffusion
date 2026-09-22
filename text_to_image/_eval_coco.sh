@@ -42,5 +42,5 @@ fi
 
 if [[ "$phase" != generate ]]; then
   run python coco_eval.py score --coco-root "$COCO_ROOT" --output "$OUT_DIR" \
-    --fid-mode "${FID_MODE:-clean}"
+    --fid-mode "${FID_MODE:-clean}" ${NO_SPICE:+--no-spice} ${CLIP_SCORE:+--clip-score}
 fi
