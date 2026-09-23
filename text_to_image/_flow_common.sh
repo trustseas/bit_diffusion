@@ -22,7 +22,8 @@ esac
 args+=(--wandb-name "$name" --use-token-text-bridge --token-layout row_major
   --x0-cond-source x0 --data-root "$data_root"
   --out-dir "${OUT_DIR:-${prefix}/BiB_results/flow_comparison/${name}}"
-  --log-every 100 --ckpt-every 10000 --eval-every 10000 --steps 200000
+  --min-throughput 1.1 --min-throughput-windows 3
+  --log-every 100 --ckpt-every 5000 --eval-every 20000 --steps 200000
   --unconditional-percent 0.3 --model DiTXA-L/2 --global-batch-size 512
   --lr 1.5e-4 --warmup-steps 5000 --ema-decay 0.9995 --eps 9.9e-4
   --repa-image --repa-image-lambda 0.5 --repa-image-warmup-steps 0
