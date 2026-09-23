@@ -29,6 +29,7 @@ set -eo pipefail
 module load python
 module load nccl/2.29.2-cu13
 module load conda
+module load cudatoolkit/13.0
 conda activate dit_env
 
 export NCCL_DEBUG=INFO
