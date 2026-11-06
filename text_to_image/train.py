@@ -131,6 +131,7 @@ _EVAL_CHECKPOINT_ARGS = (
     "repa_text_layer", "repa_image", "repa_image_layer", "sde",
     "periodic_sde_alpha", "periodic_sde_k", "periodic_sde_eps", "K",
     "edm_precond", "sigma0_sq", "sigma1_sq", "sigma01", "vae_ckpt",
+    "flow_text_sigma", "flow_image_sigma",
 )
 
 
@@ -141,7 +142,8 @@ def _validate_eval_checkpoint_args(args, ckpt, repa_image_dim) -> None:
     for key in _EVAL_CHECKPOINT_ARGS:
         if key == "force_unconditional" and key not in saved:
             continue  # Backward compatibility with pre-flow-matching checkpoints.
-        current, expected = getattr(args, key), saved.get(key, "<missing>")
+        default = 0.0 if key in ("flow_text_sigma", "flow_image_sigma") else "<missing>"
+        current, expected = getattr(args, key), saved.get(key, default)
         if current != expected:
             mismatches.append((key, current, expected))
 
@@ -317,6 +319,8 @@ def train_step(
     # interpolates between PHYSICAL x_0 and x_1 based on t (conditioning signal may be different)
     is_flow_matching = isinstance(sde, FlowMatchingODE)
     if is_flow_matching:
+        # x_cond_0/1 remain clean; the target and interpolant share these draws.
+        x_0, x_1 = sde.perturb_endpoints(x_0, x_1)
         x_t = sample_flow_matching_x_t(x_0=x_0, x_1=x_1, t=t)
     else:
         x_t = sample_p_base_x_t_cond_x_0_x_1(
@@ -435,7 +439,7 @@ def train_step(
             dec_loss, dec_logs = token_decoder_loss(
                 decoder=token_decoder,
                 sde=sde,
-                x_0=x_0,
+                x_0=x_cond_0 if is_flow_matching else x_0,
                 token_ids=batch["text_token_ids"],
                 token_mask=batch["text_token_mask"],
                 noise_t_max=token_decoder_noise_t_max,
@@ -641,6 +645,10 @@ def main() -> None:
         "--force-unconditional", action="store_true",
         help="Train and sample one unconditional forward FlowMatchingODE field.",
     )
+    parser.add_argument("--flow-text-sigma", type=float, default=0.0,
+                        help="Gaussian endpoint std in scaled text bridge coordinates (flow matching only).")
+    parser.add_argument("--flow-image-sigma", type=float, default=0.0,
+                        help="Gaussian endpoint std in scaled image latent coordinates (flow matching only).")
     parser.add_argument("--prompt-kind-dropout", type=float, default=0.2,
                         help="Classifier-free dropout probability for prompt-kind labels.")
     parser.add_argument("--token-decoder-lr", type=float, default=5e-3)
@@ -737,6 +745,10 @@ def main() -> None:
                         dest="eval_text_decode_batch_size", type=int, default=16)
     parser.add_argument("--no-eval-cider", action="store_true",
                         help="Skip CIDEr even if pycocoevalcap is installed.")
+    parser.add_argument("--eval-coco-cider", action="store_true",
+                        help="Also score PTB-tokenized COCO CIDEr (requires pycocoevalcap and Java).")
+    parser.add_argument("--eval-spice", action="store_true",
+                        help="Also score COCO SPICE (requires Java and CoreNLP; slower).")
     parser.add_argument("--no-eval-clipscore", action="store_true",
                         help="Skip CLIPScore (both i2t and t2i directions) even if installed.")
     parser.add_argument("--no-eval-genppl", action="store_true",
@@ -767,8 +779,12 @@ def main() -> None:
         parser.error("--unconditional-percent must be between 0 and 1.")
     if args.force_unconditional and args.sde != "flow_matching":
         parser.error("--force-unconditional is only supported with --sde flow_matching.")
+    for value in (args.flow_text_sigma, args.flow_image_sigma):
+        if not math.isfinite(value) or value < 0:
+            parser.error("Flow endpoint sigmas must be finite and nonnegative.")
+    if args.sde != "flow_matching" and (args.flow_text_sigma or args.flow_image_sigma):
+        parser.error("Endpoint perturbations require --sde flow_matching.")
     if args.sde == "flow_matching":
-        assert args.force_unconditional, "I realized that the conditional path is degenerate and unnecessary, since flow matching is deterministic."
         if args.text_as_noise or args.image_as_noise:
             parser.error("Flow matching currently supports only data-to-data training.")
         if args.edm_precond:
@@ -789,6 +805,11 @@ def main() -> None:
             print("forcing --no-reverse=True and --unconditional-percent=1.0 because --force-unconditional is True")
             args.no_reverse = True
             args.unconditional_percent = 1.0
+        else:
+            if not args.no_forward and args.flow_text_sigma == 0:
+                parser.error("Conditional forward flow needs --flow-text-sigma > 0; use --no-forward or --force-unconditional.")
+            if not args.no_reverse and args.flow_image_sigma == 0:
+                parser.error("Conditional reverse flow needs --flow-image-sigma > 0; use --no-reverse or --force-unconditional.")
     can_infer_reverse = (not args.no_reverse) or (args.force_unconditional and args.sde == "flow_matching")
     print(f"can_infer_reverse: {can_infer_reverse}")
     if args.x0_cond_source != "x0":
@@ -1008,6 +1029,8 @@ def main() -> None:
         sde = FlowMatchingODE(
             score_network=model,
             force_unconditional=args.force_unconditional,
+            text_sigma=args.flow_text_sigma,
+            image_sigma=args.flow_image_sigma,
         )
     else:
         raise ValueError(f"unknown sde: {args.sde}")
@@ -1150,6 +1173,9 @@ def main() -> None:
         # footprint against the already-instantiated model/EMA/optimizer.
         # load_state_dict below remaps each tensor to the param's device.
         ckpt = torch.load(args.resume, map_location="cpu", weights_only=False)
+        for key in ("flow_text_sigma", "flow_image_sigma"):
+            if getattr(args, key) != ckpt["args"].get(key, 0.0):
+                raise ValueError(f"Cannot resume with a different {key}; use the checkpoint's value.")
         if args.eval_only:
             _validate_eval_checkpoint_args(
                 args, ckpt, repa_image_dim,
@@ -1517,6 +1543,8 @@ def main() -> None:
                     token_layout=args.token_layout,
                     runtime_config=bridge_runtime,
                     compute_cider=not args.no_eval_cider,
+                    compute_coco_cider=args.eval_coco_cider,
+                    compute_spice=args.eval_spice,
                     compute_clipscore=not args.no_eval_clipscore,
                     compute_genppl=not args.no_eval_genppl,
                     genppl_model=args.eval_genppl_model,
