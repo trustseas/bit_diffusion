@@ -59,6 +59,25 @@ arguments and identity, steps, CFG, seed, batch size, world size, and preprocess
 Keep batch size/world size fixed for reproducible random draws. T2I and I2T are
 separate runs so different directional checkpoints can be evaluated fairly.
 
+On SLURM, submit `_sbatch_coco_eval.sh` instead; it generates across nodes and
+then scores once:
+
+```bash
+sbatch --job-name=coco_t2i --nodes=2 \
+  --export=ALL,TASK=t2i,CHECKPOINT=/data/run/checkpoints/step_0200000.pt,DATA_ROOT=/data/training_manifests,COCO_ROOT=/data/coco,OUT_DIR=/data/eval/model_t2i \
+  _sbatch_coco_eval.sh
+```
+
+`_eval_coco.sh` switches to a c10d rendezvous when `SLURM_NNODES` exceeds 1, so
+multi-node generation must run under `srun --ntasks-per-node=1`. It also refuses
+the default `PHASE=all` there: generation writes independent shards with no
+collectives, so scoring is only safe after every node's task has exited, and
+`coco_eval.py score` rejects a non-unit `WORLD_SIZE` anyway. The wrapper
+therefore runs `PHASE=generate` under `srun` and `PHASE=score` afterward.
+Keep the node count fixed across compared runs, since the manifest records
+world size and the random draws depend on it. The job has no retry loop or
+`--requeue`, because a partially generated `OUT_DIR` cannot be reused.
+
 To rerun scoring without loading a checkpoint or generating again:
 
 ```bash

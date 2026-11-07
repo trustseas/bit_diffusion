@@ -72,6 +72,54 @@ CHECKPOINT=/data/runs/text_noise/TIMESTAMP/checkpoints/step_0200000.pt \
 
 Replace `TIMESTAMP` with the training run's timestamp directory.
 
+## Multi-node and SLURM
+
+The wrappers launch a single-node `torchrun --standalone` job unless
+`SLURM_NNODES` exceeds 1, in which case they switch to the c10d rendezvous used
+by `_multi_node_train.sh`. Multi-node runs must therefore go through
+`srun --ntasks-per-node=1`, which is what `_sbatch_flow.sh` does:
+
+```bash
+sbatch --job-name=flow_text_noise --export=ALL,VARIANT=text_noise _sbatch_flow.sh
+sbatch --nodes=4 --job-name=flow_i2t_eval \
+  --export=ALL,VARIANT=image_noise,MODE=eval,CHECKPOINT=/path/step_0200000.pt _sbatch_flow.sh
+```
+
+`NPROC` defaults to 4 there because Perlmutter nodes have 4 A100s, so the
+default 2 nodes reproduces the 8-way per-GPU batch of a single-node run.
+`--global-batch-size` must stay divisible by the total GPU count.
+
+`_sbatch_flow.sh` defaults `DATA_ROOT` and `DINO_DIR` to the Perlmutter layout
+under `${PREFIX_DIR}/datasets/text_to_image`, which differs from the `/data`
+layout `_flow_common.sh` assumes; both stay overridable through `--export`.
+Training reads `gpic_latents/train` and evaluation `gpic_latents_TEST/TEST`,
+but both use the `gpic_latents_dino/train` features, because only the train
+split has them and `--repa-image` reads `dino_config.json` even under
+`--eval-only`. The script also omits `set -u`, since `dit_env`'s MKL activation
+hook reads an unset variable and would abort `conda activate`.
+
+`_launch_flow_pair.sh` submits training and a dependent evaluation for both
+noisy-endpoint variants:
+
+```bash
+./_launch_flow_pair.sh                   # text_noise + image_noise
+DRYRUN=1 ./_launch_flow_pair.sh          # print the sbatch lines, submit nothing
+VARIANTS=text_noise ./_launch_flow_pair.sh
+RESERVATION= ACCOUNT=m5319 ./_launch_flow_pair.sh   # regular queue instead
+```
+
+Its defaults target the `bit` reservation, which admits only account `m1266_g`
+and holds 4 nodes, so two variants at 2 nodes each fill it exactly; `TRAIN_TIME`
+plus `EVAL_TIME` must fit inside the reservation window or Slurm rejects the
+job. The eval jobs pass no `CHECKPOINT`. Each run writes a fresh timestamp
+directory under the output root, so checkpoints scatter across restarts, and
+`_sbatch_flow.sh` instead selects the highest-step `*/checkpoints/step_*.pt`
+when the job starts, failing with a clear message when none exists. Ranking is
+by step rather than modification time, because a later restart can write a
+lower step than an earlier one. The dependency is `afterany`, not `afterok`,
+since the retry loop exits 0 even when every attempt failed; confirm the
+resolved path each eval job logs before trusting its numbers.
+
 Standalone comparison evaluation defaults to 500 Euler steps for every flow
 variant (`EVAL_STEPS` overrides), 50k FID images, and 10k I2T captions, matching
 the original held-out evaluation's sample counts. Set the existing SDE/ODE
