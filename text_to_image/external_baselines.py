@@ -133,7 +133,8 @@ class FlowTokGenerator:
         self.autoencoder = FlowTiTok(config)
         self.autoencoder.load_state_dict(torch.load(tokenizer_checkpoint, map_location="cpu"))
         self.autoencoder.to(device).eval().requires_grad_(False)
-        clip_encoder, _, _ = open_clip.create_model_and_transforms("ViT-L-14-336", pretrained="openai")
+        clip_encoder, _, _ = open_clip.create_model_and_transforms(
+            "ViT-L-14-336", pretrained="openai", force_quick_gelu=True)
         del clip_encoder.visual
         self.clip = clip_encoder.to(device).eval().requires_grad_(False)
         self.clip_tokenizer = open_clip.get_tokenizer("ViT-L-14-336")
