@@ -181,7 +181,7 @@ for si in "${!sde_tags[@]}"; do
         --eval-i2t-batch-size 32 \
         --eval-text-decode-include-padding-in-accuracy \
         ${dir_flag} \
-        --auto-resume"
+        --auto-resume --resume-data-position"
       
       PYTHONPATH=.:.. torchrun --nproc-per-node=8 train.py ${cmd}
 
