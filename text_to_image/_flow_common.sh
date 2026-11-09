@@ -36,7 +36,7 @@ if [[ "$mode" == eval ]]; then
     --eval-fid-num-samples 50000 --eval-i2t-num-samples 10000
     --eval-num-ode-steps "${EVAL_STEPS:-500}" --eval-num-sde-steps "${EVAL_STEPS:-500}")
 elif [[ "$mode" == train ]]; then
-  args+=(--auto-resume --eval-fid-num-samples 1024 --eval-i2t-num-samples 1024)
+  args+=(--auto-resume --resume-data-position --eval-fid-num-samples 1024 --eval-i2t-num-samples 1024)
 else
   echo "Mode must be train or eval" >&2; exit 2
 fi
